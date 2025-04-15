@@ -64,16 +64,16 @@ struct PatientListView: View {
                     }
                     .disabled(viewModel.isAddButtonDisabled)
                 }
-                ToolbarItem(placement: .automatic) {
-                    Button(action: { viewModel.exportDatabase() }) {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .disabled(viewModel.isAddButtonDisabled)
-                }
+//                ToolbarItem(placement: .automatic) {
+//                    Button(action: { viewModel.exportDatabase() }) {
+//                        Image(systemName: "square.and.arrow.up")
+//                    }
+//                    .disabled(viewModel.isAddButtonDisabled)
+//                }
                 ToolbarItem(placement: .automatic) {
                     Button(action: {
                         Task {
-                            await viewModel.pushDatabase()
+                            try? await DatabaseManager.shared.pushDatabaseToCloud()
                         }
                     }){
                         Image(systemName: "cloud")

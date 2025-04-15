@@ -7,11 +7,16 @@
 
 import GoogleSignIn
 import GoogleSignInSwift
+import Dependencies
+import GoogleAPIClientForREST_Drive
 
 class GoogleSignInHelper: ObservableObject{
     @Published var user : GIDGoogleUser?
     
     static let shared = GoogleSignInHelper()
+    
+    
+    
     
     func SignIn() {
 #if os(iOS)
@@ -37,17 +42,19 @@ class GoogleSignInHelper: ObservableObject{
     
     func handleSignIn(result: GIDSignInResult?, error: Error?) {
         print("Sign-in completion handler called")
-            if let error = error {
-                print("Sign-in error: \(error.localizedDescription)")
-                return
-            }
-            DispatchQueue.main.async {
-                self.user = result?.user
-            }
+        if let error = error {
+            print("Sign-in error: \(error.localizedDescription)")
+            return
         }
+        DispatchQueue.main.async {
+            self.user = result?.user
+            
+        }
+    }
     
     func signOut() {
-            GIDSignIn.sharedInstance.signOut()
-            user = nil
-        }
+        GIDSignIn.sharedInstance.signOut()
+        user = nil
+    }
 }
+

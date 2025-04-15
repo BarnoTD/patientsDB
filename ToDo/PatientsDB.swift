@@ -7,7 +7,7 @@
 
 import SwiftUI
 import GoogleSignIn
-import GoogleDriveClient
+//import GoogleDriveClient
 
 @main
 struct PatientsDB: App {
@@ -26,4 +26,15 @@ struct PatientsDB: App {
         }
     }
     
+}
+
+extension GIDSignIn {
+    func getAccessToken() async throws -> String {
+        guard let currentUser = GIDSignIn.sharedInstance.currentUser else {
+            throw NSError(domain: "GoogleSignIn", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not signed in"])
+        }
+        // Ensure the access token is refreshed if necessary
+        try await currentUser.refreshTokensIfNeeded()
+        return currentUser.accessToken.tokenString
+    }
 }

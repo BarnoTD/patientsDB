@@ -53,6 +53,37 @@ class DatabaseManager {
         }
     }
     
+    func replaceDatabase(withNewFileAt newFileURL: URL) throws {
+        let fileManager = FileManager.default
+        let folderURL = try fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("PatientManager", isDirectory: true)
+        let currentDbURL = folderURL.appendingPathComponent("db.sqlite")
+        let currentWalURL = folderURL.appendingPathComponent("db.sqlite-wal")
+        let currentShmURL = folderURL.appendingPathComponent("db.sqlite-shm")
+        
+        // Close current connection
+        self.dbPool = nil
+        
+        // Remove existing WAL and SHM files
+        try? fileManager.removeItem(at: currentWalURL)
+        try? fileManager.removeItem(at: currentShmURL)
+        
+        // Replace database file
+        if fileManager.fileExists(atPath: currentDbURL.path) {
+            try fileManager.removeItem(at: currentDbURL)
+        }
+        try fileManager.moveItem(at: newFileURL, to: currentDbURL)
+        
+        // Reinitialize
+        setupDatabase()
+    }
+    
+    
+    
     private func migrateDatabaseIfNeeded() throws {
         try dbPool?.write { db in
             try db.create(table: "patients", ifNotExists: true) { table in
@@ -63,68 +94,96 @@ class DatabaseManager {
                 table.column("medicalRecordNumber", .text).notNull().unique()
                 table.column("notes", .text)
             }
+            try db.create(table: "dbinfo", ifNotExists: true) { table in
+                table.autoIncrementedPrimaryKey("id")
+                table.column("lastmodified", .integer).notNull().unique()
+                table.column("dbversion", .text).defaults(to: "1.0").unique()
+            }
+            if try DBInfo.fetchOne(db, key: 1) == nil {
+                try db.execute(
+                    sql: "INSERT INTO dbinfo (id, lastmodified, dbversion) VALUES (?, ?, ?)",
+                    arguments: [1, Int(Date.now.timeIntervalSince1970), "1.0"]
+                )
+            }
         }
     }
     
-    func exportToDocuments() throws -> URL  {
-        // Step 1: Ensure the database pool is initialized
-            guard let dbPool = dbPool else {
-                throw DatabaseError.databaseNotInitialized
+    // Helper method to update dbinfo
+    private func updateLastModified(db: Database) throws {
+        if var dbInfo = try DBInfo.fetchOne(db, key: 1) {
+            dbInfo.lastModified = Int64(Date.now.timeIntervalSince1970)
+            try dbInfo.save(db)
+        } else {
+            throw DatabaseError.dbInfoNotFound
+        }
+    }
+    
+    // Wrapper for write operations
+    func performWrite(_ updates: (Database) throws -> Void) throws {
+        guard let dbPool = dbPool else {
+            throw DatabaseError.databaseNotInitialized
+        }
+        try dbPool.write { db in
+            try updates(db)
+            try updateLastModified(db: db)
+            
+        }
+    }
+    
+    // Wrapper for read operations with dbinfo update
+    func performRead<T>(_ value: (Database) throws -> T) throws -> T {
+        guard let dbPool = dbPool else {
+            throw DatabaseError.databaseNotInitialized
+        }
+        var result: T?
+        try dbPool.write { db in
+            result = try value(db)
+            try updateLastModified(db: db)
+        }
+        guard let finalResult = result else {
+            throw DatabaseError.readFailed
+        }
+        return finalResult
+    }
+    
+    func exportToDocuments() throws -> URL {
+        guard let dbPool = dbPool else {
+            throw DatabaseError.databaseNotInitialized
+        }
+        let fileManager = FileManager.default
+        let documentsURL = try fileManager.url(
+            for: .documentDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let destinationURL = documentsURL.appendingPathComponent("db.sqlite")
+        let destinationPath = destinationURL.path
+        if fileManager.fileExists(atPath: destinationPath) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        var destinationConfig = Configuration()
+        if isEncrypted {
+            destinationConfig.prepareDatabase { db in
+                try db.usePassphrase(self.encryptionKey)
             }
-            
-            // Step 2: Get the Documents directory URL
-            let fileManager = FileManager.default
-            let documentsURL = try fileManager.url(
-                for: .documentDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )
-            
-            // Step 3: Define the destination URL and path
-            let destinationURL = documentsURL.appendingPathComponent("db.sqlite")
-            let destinationPath = destinationURL.path
-            
-            // Step 4: Remove any existing file at the destination to ensure a fresh copy
-            if fileManager.fileExists(atPath: destinationPath) {
-                try fileManager.removeItem(at: destinationURL)
-            }
-            
-            // Step 5: Configure the destination database, applying encryption if needed
-            var destinationConfig = Configuration()
-            if isEncrypted {
-                destinationConfig.prepareDatabase { db in
-                    try db.usePassphrase(self.encryptionKey)
-                }
-            }
-            
-            // Step 6: Create a new DatabasePool at the destination path
-            let destinationDB = try DatabasePool(path: destinationPath, configuration: destinationConfig)
-            
-            // Step 7: Perform the backup from the source to the destination
-            try dbPool.backup(to: destinationDB)
-            
-            // Step 8: Return the URL of the exported file
-            return destinationURL
+        }
+        let destinationDB = try DatabasePool(path: destinationPath, configuration: destinationConfig)
+        try dbPool.backup(to: destinationDB)
+        return destinationURL
     }
     
     // CRUD Operations
     func savePatient(_ patient: Patient) throws -> Patient {
-        guard let dbPool = dbPool else {
-            throw DatabaseError.databaseNotInitialized
-        }
         var patient = patient
-        try dbPool.write { db in
+        try performWrite { db in
             try patient.save(db)
         }
         return patient
     }
     
     func deletePatient(_ patient: Patient) throws {
-        guard let dbPool = dbPool else {
-            throw DatabaseError.databaseNotInitialized
-        }
-        try dbPool.write { db in
+        try performWrite { db in
             _ = try patient.delete(db)
         }
     }
@@ -145,17 +204,70 @@ class DatabaseManager {
     }
     
     func fetchPatient(id: Int64) throws -> Patient? {
-        guard let dbPool = dbPool else {
-            throw DatabaseError.databaseNotInitialized
-        }
-        return try dbPool.read { db in
+        return try performRead { db in
             try Patient.fetchOne(db, key: id)
         }
+    }
+    
+    func pushDatabaseToCloud() async throws {
+        // Create an instance of PatientListViewModel's Google Drive helper
+        let driveHelper = GoogleDriveHelper(user: GoogleSignInHelper.shared.user!)
+        
+        // Export the database
+        let exportedURL = try exportToDocuments()
+        let data = try Data(contentsOf: exportedURL)
+        let name = exportedURL.lastPathComponent
+        
+        // Check if database file already exists in Drive
+        let fileId = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            driveHelper.queryFiles(query: "name contains 'db'") { files, error in
+                if let error = error {
+                    print("Error: \(error.localizedDescription)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                if let files = files, !files.isEmpty {
+                    continuation.resume(returning: files[0].identifier)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+        
+        if let fileId = fileId {
+            // File exists, update it
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                driveHelper.updateFile(fileId: fileId, data: data, mimeType: "application/x-sqlite3") { file, error in
+                    if let file = file {
+                        print("Updated file with ID: \(file.identifier ?? "unknown")")
+                    } else if let error = error {
+                        print("Update error: \(error.localizedDescription)")
+                    }
+                    continuation.resume()
+                }
+            }
+        } else {
+            // File doesn't exist, upload new one
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                driveHelper.uploadFile(data: data, name: name, mimeType: "application/x-sqlite3", toFolder: "appDataFolder") { file, error in
+                    if let file = file {
+                        print("Uploaded file with ID: \(file.identifier ?? "unknown")")
+                    } else if let error = error {
+                        print("Upload error: \(error.localizedDescription)")
+                    }
+                    continuation.resume()
+                }
+            }
+        }
+        
+        // Delete the exported file after uploading
+        try FileManager.default.removeItem(at: exportedURL)
     }
 }
 
 enum DatabaseError: Error {
     case databaseNotInitialized
+    case dbInfoNotFound
+    case readFailed
 }
-
-

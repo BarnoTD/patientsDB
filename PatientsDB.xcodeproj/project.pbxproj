@@ -11,6 +11,7 @@
 		262A572A2DA7FED200058A9E /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 262A57292DA7FED200058A9E /* GoogleSignInSwift */; };
 		262A572D2DA7FEF200058A9E /* Dependencies in Frameworks */ = {isa = PBXBuildFile; productRef = 262A572C2DA7FEF200058A9E /* Dependencies */; };
 		262A57302DA7FF0900058A9E /* GoogleDriveClient in Frameworks */ = {isa = PBXBuildFile; productRef = 262A572F2DA7FF0900058A9E /* GoogleDriveClient */; };
+		26CF92BD2DA9828200E35A54 /* GoogleAPIClientForREST_Drive in Frameworks */ = {isa = PBXBuildFile; productRef = 26CF92BC2DA9828200E35A54 /* GoogleAPIClientForREST_Drive */; };
 		26F60F7C2D94C0E4007C4DAB /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 26F60F7B2D94C0E4007C4DAB /* GRDB */; };
 /* End PBXBuildFile section */
 
@@ -46,6 +47,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				26CF92BD2DA9828200E35A54 /* GoogleAPIClientForREST_Drive in Frameworks */,
 				262A572A2DA7FED200058A9E /* GoogleSignInSwift in Frameworks */,
 				26F60F7C2D94C0E4007C4DAB /* GRDB in Frameworks */,
 				262A57302DA7FF0900058A9E /* GoogleDriveClient in Frameworks */,
@@ -98,6 +100,7 @@
 				262A57292DA7FED200058A9E /* GoogleSignInSwift */,
 				262A572C2DA7FEF200058A9E /* Dependencies */,
 				262A572F2DA7FF0900058A9E /* GoogleDriveClient */,
+				26CF92BC2DA9828200E35A54 /* GoogleAPIClientForREST_Drive */,
 			);
 			productName = ToDo;
 			productReference = 265440AA2D90D2F800E56F18 /* ToDo.app */;
@@ -132,6 +135,7 @@
 				262A57262DA7FED200058A9E /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				262A572B2DA7FEF200058A9E /* XCRemoteSwiftPackageReference "swift-dependencies" */,
 				262A572E2DA7FF0900058A9E /* XCRemoteSwiftPackageReference "swift-google-drive-client" */,
+				26CF92BB2DA9828200E35A54 /* XCRemoteSwiftPackageReference "google-api-objectivec-client-for-rest" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 265440AB2D90D2F800E56F18 /* Products */;
@@ -406,6 +410,14 @@
 				kind = branch;
 			};
 		};
+		26CF92BB2DA9828200E35A54 /* XCRemoteSwiftPackageReference "google-api-objectivec-client-for-rest" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/google-api-objectivec-client-for-rest";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 		26F60F7A2D94C0E4007C4DAB /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/duckduckgo/GRDB.swift.git";
@@ -436,6 +448,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 262A572E2DA7FF0900058A9E /* XCRemoteSwiftPackageReference "swift-google-drive-client" */;
 			productName = GoogleDriveClient;
+		};
+		26CF92BC2DA9828200E35A54 /* GoogleAPIClientForREST_Drive */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 26CF92BB2DA9828200E35A54 /* XCRemoteSwiftPackageReference "google-api-objectivec-client-for-rest" */;
+			productName = GoogleAPIClientForREST_Drive;
 		};
 		26F60F7B2D94C0E4007C4DAB /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
