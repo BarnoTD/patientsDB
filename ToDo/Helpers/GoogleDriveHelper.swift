@@ -42,10 +42,10 @@ class GoogleDriveHelper {
         }
     }
     
-    // Fetch file metadata (name and MIME type)
+    // Fetch file metadata (name and MIME type and properties)
     func getFileMetadata(fileId: String, completion: @escaping (GTLRDrive_File?, Error?) -> Void) {
         let query = GTLRDriveQuery_FilesGet.query(withFileId: fileId)
-        query.fields = "id,name,mimeType" // Fetch only what we need
+        query.fields = "id,name,mimeType,properties" // Fetch only what we need
         service.executeQuery(query) { (ticket, result, error) in
             DispatchQueue.main.async {
                 if let error = error {
@@ -60,7 +60,6 @@ class GoogleDriveHelper {
             }
         }
     }
-    
     
     
     /// Downloads the content of a file from Google Drive.
@@ -148,9 +147,17 @@ class GoogleDriveHelper {
     ///   - mimeType: The MIME type of the file (e.g., "text/plain", "image/jpeg").
     ///   - folderId: The ID of the folder to upload to. If nil, uploads to the root.
     ///   - completion: A closure called with the uploaded file metadata or an error.
-    func uploadFile(data: Data, name: String, mimeType: String, toFolder folderId: String? = nil, completion: @escaping (GTLRDrive_File?, Error?) -> Void) {
+    func uploadFile(data: Data, name: String, mimeType: String, toFolder folderId: String? = nil, properties: [String: String]? = nil, completion: @escaping (GTLRDrive_File?, Error?) -> Void) {
         let file = GTLRDrive_File()
         file.name = name
+        if let properties = properties {
+            let propertiesObject = GTLRDrive_File_Properties()
+                    // Use KVC to set the properties
+                    properties.forEach { (key, value) in
+                        propertiesObject.setAdditionalProperty(value, forName: key)
+                    }
+            file.properties = propertiesObject
+            }
         if let folderId = folderId {
             file.parents = [folderId] // Set the parent folder
         }
@@ -207,8 +214,16 @@ class GoogleDriveHelper {
     ///   - data: The new content of the file.
     ///   - mimeType: The MIME type of the new content.
     ///   - completion: A closure called with the updated file metadata or an error.
-    func updateFile(fileId: String, data: Data, mimeType: String, completion: @escaping (GTLRDrive_File?, Error?) -> Void) {
+    func updateFile(fileId: String, data: Data, mimeType: String, properties: [String: String]? = nil, completion: @escaping (GTLRDrive_File?, Error?) -> Void) {
         let file = GTLRDrive_File()
+        if let properties = properties {
+            let propertiesObject = GTLRDrive_File_Properties()
+                    // Use KVC to set the properties
+                    properties.forEach { (key, value) in
+                        propertiesObject.setAdditionalProperty(value, forName: key)
+                    }
+            file.properties = propertiesObject
+            }
         let uploadParameters = GTLRUploadParameters(data: data, mimeType: mimeType)
         
         let query = GTLRDriveQuery_FilesUpdate.query(withObject: file, fileId: fileId, uploadParameters: uploadParameters)

@@ -130,21 +130,21 @@ class DatabaseManager {
         }
     }
     
-    // Wrapper for read operations with dbinfo update
-    func performRead<T>(_ value: (Database) throws -> T) throws -> T {
-        guard let dbPool = dbPool else {
-            throw DatabaseError.databaseNotInitialized
-        }
-        var result: T?
-        try dbPool.write { db in
-            result = try value(db)
-            try updateLastModified(db: db)
-        }
-        guard let finalResult = result else {
-            throw DatabaseError.readFailed
-        }
-        return finalResult
-    }
+    //    // Wrapper for read operations with dbinfo update
+    //    func performRead<T>(_ value: (Database) throws -> T) throws -> T {
+    //        guard let dbPool = dbPool else {
+    //            throw DatabaseError.databaseNotInitialized
+    //        }
+    //        var result: T?
+    //        try dbPool.write { db in
+    //            result = try value(db)
+    //            try updateLastModified(db: db)
+    //        }
+    //        guard let finalResult = result else {
+    //            throw DatabaseError.readFailed
+    //        }
+    //        return finalResult
+    //    }
     
     func exportToDocuments() throws -> URL {
         guard let dbPool = dbPool else {
@@ -204,7 +204,10 @@ class DatabaseManager {
     }
     
     func fetchPatient(id: Int64) throws -> Patient? {
-        return try performRead { db in
+        guard let dbPool = dbPool else {
+            throw DatabaseError.databaseNotInitialized
+        }
+        return try dbPool.read { db in
             try Patient.fetchOne(db, key: id)
         }
     }
@@ -212,6 +215,8 @@ class DatabaseManager {
     func pushDatabaseToCloud() async throws {
         // Create an instance of PatientListViewModel's Google Drive helper
         let driveHelper = GoogleDriveHelper(user: GoogleSignInHelper.shared.user!)
+        
+        let lastModifiedTimestamp = try getDatabaseLastModifiedTimestamp()
         
         // Export the database
         let exportedURL = try exportToDocuments()
@@ -235,10 +240,13 @@ class DatabaseManager {
             }
         }
         
+        // Create metadata with lastModified timestamp
+        let properties = ["lastModified": "\(lastModifiedTimestamp)"]
+        
         if let fileId = fileId {
             // File exists, update it
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                driveHelper.updateFile(fileId: fileId, data: data, mimeType: "application/x-sqlite3") { file, error in
+                driveHelper.updateFile(fileId: fileId, data: data, mimeType: "application/x-sqlite3", properties: properties) { file, error in
                     if let file = file {
                         print("Updated file with ID: \(file.identifier ?? "unknown")")
                     } else if let error = error {
@@ -250,7 +258,7 @@ class DatabaseManager {
         } else {
             // File doesn't exist, upload new one
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                driveHelper.uploadFile(data: data, name: name, mimeType: "application/x-sqlite3", toFolder: "appDataFolder") { file, error in
+                driveHelper.uploadFile(data: data, name: name, mimeType: "application/x-sqlite3", toFolder: "appDataFolder", properties: properties) { file, error in
                     if let file = file {
                         print("Uploaded file with ID: \(file.identifier ?? "unknown")")
                     } else if let error = error {
@@ -261,8 +269,24 @@ class DatabaseManager {
             }
         }
         
+        
+        
         // Delete the exported file after uploading
         try FileManager.default.removeItem(at: exportedURL)
+    }
+    
+    // Add this helper function to get the lastModified timestamp
+    func getDatabaseLastModifiedTimestamp() throws -> Int64 {
+        guard let dbPool = dbPool else {
+            throw DatabaseError.databaseNotInitialized
+        }
+        
+        return try dbPool.read { db in
+            guard let dbInfo = try DBInfo.fetchOne(db, key: 1) else {
+                throw DatabaseError.dbInfoNotFound
+            }
+            return dbInfo.lastModified
+        }
     }
 }
 
