@@ -44,7 +44,6 @@ class DatabaseManager {
             }
             
             dbPool = try DatabasePool(path: dbURL.path, configuration: configuration)
-            print(dbURL.path())
             
             try migrateDatabaseIfNeeded()
         } catch {
