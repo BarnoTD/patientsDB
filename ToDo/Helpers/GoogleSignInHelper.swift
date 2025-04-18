@@ -49,6 +49,13 @@ class GoogleSignInHelper: ObservableObject{
         DispatchQueue.main.async {
             self.user = result?.user
             
+            // Initialize CloudSyncManager after successful sign-in
+            if let user = result?.user {
+                let cloudSyncManager = CloudSyncManager.shared
+                cloudSyncManager.initializeWithUser(user)
+                cloudSyncManager.startAutoSync()
+                print("✅ Cloud sync initialized and started after sign-in")
+            }
         }
     }
     

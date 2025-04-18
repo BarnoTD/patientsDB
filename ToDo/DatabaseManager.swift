@@ -1,19 +1,54 @@
 import Foundation
 import GRDB
 
+// MARK: - Database Protocol
+protocol DatabaseManaging {
+    func savePatient(_ patient: Patient) throws -> Patient
+    func deletePatient(_ patient: Patient) throws
+    func loadPatients(completion: @escaping (Result<[Patient], Error>) -> Void)
+    func fetchPatient(id: Int64) throws -> Patient?
+    func exportToDocuments() throws -> URL
+    func pushDatabaseToCloud() async throws
+    func replaceDatabase(withNewFileAt newFileURL: URL) throws
+}
+
 protocol DatabaseManagerDelegate: AnyObject {
     func didEncounterDatabaseError(_ error: Error)
 }
 
+// MARK: - Database Errors
+enum DatabaseError: LocalizedError {
+    case databaseNotInitialized
+    case dbInfoNotFound
+    case readFailed
+    case invalidConfiguration
+    
+    var errorDescription: String? {
+        switch self {
+        case .databaseNotInitialized:
+            return "Database has not been initialized"
+        case .dbInfoNotFound:
+            return "Database info not found"
+        case .readFailed:
+            return "Failed to read from database"
+        case .invalidConfiguration:
+            return "Invalid database configuration"
+        }
+    }
+}
+
 // MARK: - Database Manager
-class DatabaseManager {
+class DatabaseManager: DatabaseManaging {
     static let shared = DatabaseManager()
     private var dbPool: DatabasePool?
-    private let encryptionKey: String = "passTest" // for testing, shouldn't keep it hardcoded
-    private var isEncrypted: Bool = true
+    private let encryptionKey: String
+    private var isEncrypted: Bool
     weak var delegate: DatabaseManagerDelegate?
     
     private init() {
+        // In a real app, this should be loaded from a secure configuration
+        self.encryptionKey = ProcessInfo.processInfo.environment["DB_ENCRYPTION_KEY"] ?? "passTest"
+        self.isEncrypted = true
         setupDatabase()
     }
     
@@ -53,6 +88,23 @@ class DatabaseManager {
     }
     
     func replaceDatabase(withNewFileAt newFileURL: URL) throws {
+        print("🔄 Starting database replacement process...")
+        
+        guard FileManager.default.fileExists(atPath: newFileURL.path) else {
+            print("❌ Source file does not exist at: \(newFileURL.path)")
+            throw DatabaseError.invalidConfiguration
+        }
+        
+        // Check file size to ensure it's a valid database
+        let fileAttributes = try FileManager.default.attributesOfItem(atPath: newFileURL.path)
+        let fileSize = fileAttributes[.size] as? UInt64 ?? 0
+        print("📊 Source file size: \(fileSize) bytes")
+        
+        guard fileSize > 0 else {
+            print("❌ Source file is empty")
+            throw DatabaseError.invalidConfiguration
+        }
+        
         let fileManager = FileManager.default
         let folderURL = try fileManager.url(
             for: .applicationSupportDirectory,
@@ -64,24 +116,51 @@ class DatabaseManager {
         let currentWalURL = folderURL.appendingPathComponent("db.sqlite-wal")
         let currentShmURL = folderURL.appendingPathComponent("db.sqlite-shm")
         
+        print("📁 Current database path: \(currentDbURL.path)")
+        
         // Close current connection
+        print("🔄 Closing current database connection...")
         self.dbPool = nil
         
         // Remove existing WAL and SHM files
-        try? fileManager.removeItem(at: currentWalURL)
-        try? fileManager.removeItem(at: currentShmURL)
+        if fileManager.fileExists(atPath: currentWalURL.path) {
+            try fileManager.removeItem(at: currentWalURL)
+            print("✅ Removed WAL file")
+        }
+        
+        if fileManager.fileExists(atPath: currentShmURL.path) {
+            try fileManager.removeItem(at: currentShmURL)
+            print("✅ Removed SHM file")
+        }
         
         // Replace database file
         if fileManager.fileExists(atPath: currentDbURL.path) {
             try fileManager.removeItem(at: currentDbURL)
+            print("✅ Removed old database file")
         }
-        try fileManager.moveItem(at: newFileURL, to: currentDbURL)
+        
+        // Create a copy instead of moving to avoid issues with different volumes
+        try fileManager.copyItem(at: newFileURL, to: currentDbURL)
+        print("✅ Copied new database file to destination")
+        
+        // Verify the new database exists
+        guard fileManager.fileExists(atPath: currentDbURL.path) else {
+            print("❌ Failed to copy database file to destination")
+            throw DatabaseError.invalidConfiguration
+        }
         
         // Reinitialize
+        print("🔄 Reinitializing database connection...")
         setupDatabase()
+        
+        // Verify database connection
+        guard dbPool != nil else {
+            print("❌ Failed to reconnect to database")
+            throw DatabaseError.databaseNotInitialized
+        }
+        
+        print("✅ Database replacement completed successfully")
     }
-    
-    
     
     private func migrateDatabaseIfNeeded() throws {
         try dbPool?.write { db in
@@ -287,10 +366,4 @@ class DatabaseManager {
             return dbInfo.lastModified
         }
     }
-}
-
-enum DatabaseError: Error {
-    case databaseNotInitialized
-    case dbInfoNotFound
-    case readFailed
 }

@@ -11,21 +11,24 @@ import GoogleSignIn
 
 @main
 struct PatientsDB: App {
+    @StateObject private var cloudSyncManager = CloudSyncManager.shared
     
-    init(){
+    init() {
         if let clientID = Bundle.main.object(forInfoDictionaryKey: "GIDClientID") as? String {
-                print("Client ID from Info.plist: \(clientID)")
-            } else {
-                print("Client ID not found in Info.plist")
-            }
+            print("Client ID from Info.plist: \(clientID)")
+        } else {
+            print("Client ID not found in Info.plist")
+        }
     }
     
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onDisappear {
+                    cloudSyncManager.stopAutoSync()
+                }
         }
     }
-    
 }
 
 extension GIDSignIn {

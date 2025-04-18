@@ -19,11 +19,30 @@ class PatientListViewModel: ObservableObject,DatabaseManagerDelegate {
     @Published var isAddButtonDisabled = false
     @Published var errorMessage: String?
     
+    // For storing the notification observer
+    private var databaseUpdatedObserver: NSObjectProtocol?
+    
     init() {
         DatabaseManager.shared.delegate = self
         loadPatients()
+        
+        // Register for database updated notifications
+        databaseUpdatedObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("DatabaseUpdated"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            print("📣 Received DatabaseUpdated notification, reloading patients...")
+            self?.loadPatients()
+        }
     }
     
+    deinit {
+        // Remove observer when view model is deallocated
+        if let observer = databaseUpdatedObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
     
     func loadPatients() {
         DatabaseManager.shared.loadPatients { [weak self] result in
@@ -70,16 +89,16 @@ class PatientListViewModel: ObservableObject,DatabaseManagerDelegate {
 //        do {
 //            // Export the database to a complete file including WAL data
 //            let exportedURL = try DatabaseManager.shared.exportToDocuments()
-//            
+//
 //            // Read the data from the exported file
 //            let data = try Data(contentsOf: exportedURL)
-//            
+//
 //            // Get the file name from the exported URL
 //            let name = exportedURL.lastPathComponent
-//            
+//
 //            // Check if database file already exists in Drive
 //            let fileId = try await getDatabaseId()
-//            
+//
 //            if let fileId = fileId {
 //                // File exists, update it
 //                await withCheckedContinuation { continuation in
@@ -105,7 +124,7 @@ class PatientListViewModel: ObservableObject,DatabaseManagerDelegate {
 //                    }
 //                }
 //            }
-//            
+//
 //            // Delete the exported file after uploading
 //            try FileManager.default.removeItem(at: exportedURL)
 //        } catch {
