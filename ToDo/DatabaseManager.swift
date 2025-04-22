@@ -188,23 +188,78 @@ class DatabaseManager: DatabaseManaging {
     
     // Helper method to update dbinfo
     private func updateLastModified(db: Database) throws {
+        // This is using local time currently - we'll change it to use server time
         if var dbInfo = try DBInfo.fetchOne(db, key: 1) {
-            dbInfo.lastModified = Int64(Date.now.timeIntervalSince1970)
-            try dbInfo.save(db)
+            ServerTimeUtil.getServerTime { serverTime in
+                guard let serverTime = serverTime else { return }
+                
+                do {
+                    try self.dbPool?.write { db in
+                        dbInfo.lastModified = Int64(serverTime.timeIntervalSince1970)
+                        try dbInfo.save(db)
+                    }
+                } catch {
+                    self.delegate?.didEncounterDatabaseError(error)
+                }
+            }
         } else {
             throw DatabaseError.dbInfoNotFound
         }
     }
     
     // Wrapper for write operations
-    func performWrite(_ updates: (Database) throws -> Void) throws {
+    func performWrite(_ updates: @escaping (Database) throws -> Void, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let dbPool = dbPool else {
+            completion(.failure(DatabaseError.databaseNotInitialized))
+            return
+        }
+        
+        // Get server time first
+        ServerTimeUtil.getServerTime { [weak self] serverTime in
+            guard let self = self else {
+                completion(.failure(DatabaseError.databaseNotInitialized))
+                return
+            }
+            
+            // Use server time if available, otherwise fall back to local time
+            let timestamp = serverTime != nil ?
+            Int64(serverTime!.timeIntervalSince1970) :
+            Int64(Date.now.timeIntervalSince1970)
+            
+            do {
+                try dbPool.write { db in
+                    try updates(db)
+                    
+                    // Update lastModified with the server timestamp
+                    if var dbInfo = try DBInfo.fetchOne(db, key: 1) {
+                        dbInfo.lastModified = timestamp
+                        try dbInfo.save(db)
+                    } else {
+                        throw DatabaseError.dbInfoNotFound
+                    }
+                }
+                completion(.success(()))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+    
+    func performWriteSync(_ updates: (Database) throws -> Void) throws {
         guard let dbPool = dbPool else {
             throw DatabaseError.databaseNotInitialized
         }
+        
         try dbPool.write { db in
             try updates(db)
-            try updateLastModified(db: db)
             
+            // Update with local time as fallback
+            if var dbInfo = try DBInfo.fetchOne(db, key: 1) {
+                dbInfo.lastModified = Int64(Date.now.timeIntervalSince1970)
+                try dbInfo.save(db)
+            } else {
+                throw DatabaseError.dbInfoNotFound
+            }
         }
     }
     
@@ -254,15 +309,46 @@ class DatabaseManager: DatabaseManaging {
     // CRUD Operations
     func savePatient(_ patient: Patient) throws -> Patient {
         var patient = patient
-        try performWrite { db in
+        
+        // Use a semaphore to make this method synchronous
+        let semaphore = DispatchSemaphore(value: 0)
+        var saveError: Error?
+        
+        performWrite({ db in
             try patient.save(db)
+        }) { result in
+            if case .failure(let error) = result {
+                saveError = error
+            }
+            semaphore.signal()
         }
+        
+        semaphore.wait()
+        
+        if let error = saveError {
+            throw error
+        }
+        
         return patient
     }
     
     func deletePatient(_ patient: Patient) throws {
-        try performWrite { db in
+        let semaphore = DispatchSemaphore(value: 0)
+        var deleteError: Error?
+        
+        performWrite({ db in
             _ = try patient.delete(db)
+        }) { result in
+            if case .failure(let error) = result {
+                deleteError = error
+            }
+            semaphore.signal()
+        }
+        
+        semaphore.wait()
+        
+        if let deleteError = deleteError {
+            throw deleteError
         }
     }
     
